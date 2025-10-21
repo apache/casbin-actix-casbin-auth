@@ -137,6 +137,67 @@ async fn main() -> Result<()> {
 }
 ```
 
+## Customizing Error Responses
+
+By default, the middleware returns the following HTTP status codes:
+- `401 Unauthorized` - when no `CasbinVals` are found in request extensions
+- `403 Forbidden` - when access is denied by Casbin enforcer
+- `502 Bad Gateway` - when the Casbin enforcer returns an error
+
+You can customize these error responses to return structured JSON or any other format:
+
+```rust
+use actix_casbin_auth::casbin::{DefaultModel, FileAdapter, Result};
+use actix_casbin_auth::CasbinService;
+use actix_web::{web, App, HttpResponse, HttpServer};
+use serde_json::json;
+
+#[actix_rt::main]
+async fn main() -> Result<()> {
+    let m = DefaultModel::from_file("examples/rbac_with_pattern_model.conf")
+        .await
+        .unwrap();
+    let a = FileAdapter::new("examples/rbac_with_pattern_policy.csv");
+
+    let casbin_middleware = CasbinService::new(m, a)
+        .await?
+        .set_unauthorized_handler(|| {
+            HttpResponse::Unauthorized()
+                .json(json!({
+                    "error": "Authentication required",
+                    "code": 401
+                }))
+        })
+        .set_forbidden_handler(|| {
+            HttpResponse::Forbidden()
+                .json(json!({
+                    "error": "Access forbidden",
+                    "code": 403
+                }))
+        })
+        .set_error_handler(|| {
+            HttpResponse::InternalServerError()
+                .json(json!({
+                    "error": "Internal server error",
+                    "code": 500
+                }))
+        });
+
+    HttpServer::new(move || {
+        App::new()
+            .wrap(casbin_middleware.clone())
+            .wrap(FakeAuth)
+            .route("/pen/1", web::get().to(|| HttpResponse::Ok()))
+            .route("/book/{id}", web::get().to(|| HttpResponse::Ok()))
+    })
+    .bind("127.0.0.1:8080")?
+    .run()
+    .await?;
+
+    Ok(())
+}
+```
+
 ## License
 
 This project is licensed under

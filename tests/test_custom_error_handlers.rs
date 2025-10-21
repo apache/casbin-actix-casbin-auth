@@ -124,11 +124,10 @@ async fn test_custom_forbidden_handler() {
         .await
         .unwrap()
         .set_forbidden_handler(|| {
-            HttpResponse::Forbidden()
-                .json(json!({
-                    "error": "Access forbidden",
-                    "code": 403
-                }))
+            HttpResponse::Forbidden().json(json!({
+                "error": "Access forbidden",
+                "code": 403
+            }))
         });
 
     casbin_middleware
@@ -169,11 +168,10 @@ async fn test_custom_unauthorized_handler() {
         .await
         .unwrap()
         .set_unauthorized_handler(|| {
-            HttpResponse::Unauthorized()
-                .json(json!({
-                    "error": "Authentication required",
-                    "code": 401
-                }))
+            HttpResponse::Unauthorized().json(json!({
+                "error": "Authentication required",
+                "code": 401
+            }))
         });
 
     casbin_middleware
@@ -208,25 +206,22 @@ async fn test_all_custom_handlers() {
         .await
         .unwrap()
         .set_unauthorized_handler(|| {
-            HttpResponse::Unauthorized()
-                .json(json!({
-                    "error": "Authentication required",
-                    "code": 401
-                }))
+            HttpResponse::Unauthorized().json(json!({
+                "error": "Authentication required",
+                "code": 401
+            }))
         })
         .set_forbidden_handler(|| {
-            HttpResponse::Forbidden()
-                .json(json!({
-                    "error": "Access forbidden",
-                    "code": 403
-                }))
+            HttpResponse::Forbidden().json(json!({
+                "error": "Access forbidden",
+                "code": 403
+            }))
         })
         .set_error_handler(|| {
-            HttpResponse::InternalServerError()
-                .json(json!({
-                    "error": "Internal server error",
-                    "code": 500
-                }))
+            HttpResponse::InternalServerError().json(json!({
+                "error": "Internal server error",
+                "code": 500
+            }))
         });
 
     casbin_middleware
