@@ -31,9 +31,14 @@ pub struct CasbinVals {
     pub domain: Option<String>,
 }
 
+type ErrorHandler = Arc<dyn Fn() -> HttpResponse + Send + Sync>;
+
 #[derive(Clone)]
 pub struct CasbinService {
     enforcer: Arc<RwLock<CachedEnforcer>>,
+    unauthorized_handler: Option<ErrorHandler>,
+    forbidden_handler: Option<ErrorHandler>,
+    error_handler: Option<ErrorHandler>,
 }
 
 impl CasbinService {
@@ -41,6 +46,9 @@ impl CasbinService {
         let enforcer: CachedEnforcer = CachedEnforcer::new(m, a).await?;
         Ok(CasbinService {
             enforcer: Arc::new(RwLock::new(enforcer)),
+            unauthorized_handler: None,
+            forbidden_handler: None,
+            error_handler: None,
         })
     }
 
@@ -49,7 +57,36 @@ impl CasbinService {
     }
 
     pub fn set_enforcer(e: Arc<RwLock<CachedEnforcer>>) -> CasbinService {
-        CasbinService { enforcer: e }
+        CasbinService {
+            enforcer: e,
+            unauthorized_handler: None,
+            forbidden_handler: None,
+            error_handler: None,
+        }
+    }
+
+    pub fn set_unauthorized_handler<F>(mut self, handler: F) -> Self
+    where
+        F: Fn() -> HttpResponse + Send + Sync + 'static,
+    {
+        self.unauthorized_handler = Some(Arc::new(handler));
+        self
+    }
+
+    pub fn set_forbidden_handler<F>(mut self, handler: F) -> Self
+    where
+        F: Fn() -> HttpResponse + Send + Sync + 'static,
+    {
+        self.forbidden_handler = Some(Arc::new(handler));
+        self
+    }
+
+    pub fn set_error_handler<F>(mut self, handler: F) -> Self
+    where
+        F: Fn() -> HttpResponse + Send + Sync + 'static,
+    {
+        self.error_handler = Some(Arc::new(handler));
+        self
     }
 }
 
@@ -68,6 +105,9 @@ where
         ok(CasbinMiddleware {
             enforcer: self.enforcer.clone(),
             service: Rc::new(RefCell::new(service)),
+            unauthorized_handler: self.unauthorized_handler.clone(),
+            forbidden_handler: self.forbidden_handler.clone(),
+            error_handler: self.error_handler.clone(),
         })
     }
 }
@@ -89,6 +129,9 @@ impl DerefMut for CasbinService {
 pub struct CasbinMiddleware<S> {
     service: Rc<RefCell<S>>,
     enforcer: Arc<RwLock<CachedEnforcer>>,
+    unauthorized_handler: Option<ErrorHandler>,
+    forbidden_handler: Option<ErrorHandler>,
+    error_handler: Option<ErrorHandler>,
 }
 
 impl<S, B> Service<ServiceRequest> for CasbinMiddleware<S>
@@ -107,6 +150,9 @@ where
     fn call(&self, req: ServiceRequest) -> Self::Future {
         let cloned_enforcer = self.enforcer.clone();
         let srv = self.service.clone();
+        let unauthorized_handler = self.unauthorized_handler.clone();
+        let forbidden_handler = self.forbidden_handler.clone();
+        let error_handler = self.error_handler.clone();
 
         async move {
             let path = req.path().to_string();
@@ -115,9 +161,10 @@ where
             let vals = match option_vals {
                 Some(value) => value,
                 None => {
-                    return Ok(req.into_response(
-                        HttpResponse::Unauthorized().finish().map_into_right_body(),
-                    ))
+                    let response = unauthorized_handler
+                        .map(|h| h())
+                        .unwrap_or_else(|| HttpResponse::Unauthorized().finish());
+                    return Ok(req.into_response(response.map_into_right_body()));
                 }
             };
             let subject = vals.subject.clone();
@@ -132,15 +179,17 @@ where
                         }
                         Ok(false) => {
                             drop(lock);
-                            Ok(req.into_response(
-                                HttpResponse::Forbidden().finish().map_into_right_body(),
-                            ))
+                            let response = forbidden_handler
+                                .map(|h| h())
+                                .unwrap_or_else(|| HttpResponse::Forbidden().finish());
+                            Ok(req.into_response(response.map_into_right_body()))
                         }
                         Err(_) => {
                             drop(lock);
-                            Ok(req.into_response(
-                                HttpResponse::BadGateway().finish().map_into_right_body(),
-                            ))
+                            let response = error_handler
+                                .map(|h| h())
+                                .unwrap_or_else(|| HttpResponse::BadGateway().finish());
+                            Ok(req.into_response(response.map_into_right_body()))
                         }
                     }
                 } else {
@@ -152,20 +201,25 @@ where
                         }
                         Ok(false) => {
                             drop(lock);
-                            Ok(req.into_response(
-                                HttpResponse::Forbidden().finish().map_into_right_body(),
-                            ))
+                            let response = forbidden_handler
+                                .map(|h| h())
+                                .unwrap_or_else(|| HttpResponse::Forbidden().finish());
+                            Ok(req.into_response(response.map_into_right_body()))
                         }
                         Err(_) => {
                             drop(lock);
-                            Ok(req.into_response(
-                                HttpResponse::BadGateway().finish().map_into_right_body(),
-                            ))
+                            let response = error_handler
+                                .map(|h| h())
+                                .unwrap_or_else(|| HttpResponse::BadGateway().finish());
+                            Ok(req.into_response(response.map_into_right_body()))
                         }
                     }
                 }
             } else {
-                Ok(req.into_response(HttpResponse::Unauthorized().finish().map_into_right_body()))
+                let response = unauthorized_handler
+                    .map(|h| h())
+                    .unwrap_or_else(|| HttpResponse::Unauthorized().finish());
+                Ok(req.into_response(response.map_into_right_body()))
             }
         }
         .boxed_local()
