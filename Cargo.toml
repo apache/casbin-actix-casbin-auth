@@ -32,6 +32,7 @@ runtime-async-std = ["casbin/runtime-async-std", "async-std/std"]
 tokio = { version = "1.17.0", features = [ "full" ] }
 async-std = { version = "1.10.0", features = [ "attributes" ] }
 actix-rt = "2.7.0"
+serde_json = "1.0"
 
 [profile.release]
 codegen-units = 1
